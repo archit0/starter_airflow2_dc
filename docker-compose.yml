@@ -1,0 +1,78 @@
+version: '3'
+x-airflow-common:
+  &airflow-common
+  build: .
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./config/airflow.cfg:/opt/airflow/airflow.cfg
+    - ./src:/application/src
+  user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-50000}"
+  env_file:
+        - ./.env
+  depends_on:
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+
+services:
+  webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - 8080:8080
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: always
+
+  worker:
+    <<: *airflow-common
+    command: celery worker
+    restart: always
+
+  flower:
+    <<: *airflow-common
+    command: celery flower
+    ports:
+      - 5555:5555
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:5555/"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  postgres:
+    image: postgres:9.6
+    env_file:
+            - ./.env
+    volumes:
+      - postgres-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+    restart: always
+
+  redis:
+    image: redis:latest
+    ports:
+      - 6379:6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 30s
+      retries: 50
+    restart: always
+
+volumes:
+    postgres-db-data:
+        driver: local
